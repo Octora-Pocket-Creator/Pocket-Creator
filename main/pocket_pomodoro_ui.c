@@ -11,13 +11,14 @@
 // "会显示哪些字"裁剪的——为了几个数字把字库放大一倍不划算。七段是纯几何绘制,
 // 任意大、任意配色,顺带把字号从 28 拉到 76。中文仍然走 chick_run_glyphs。
 //
-// 提醒方式(提示词要求的"明显的视觉提醒"):专注走完时整屏按 400ms 明暗交替闪,
-// 同时大字亮出"专注结束"/"休息结束",8 秒后自动进下一段。闪屏用背光 PWM 做
-// (bsp_display_backlight),是全屏级的明暗变化,离得远也能看见,而且不额外画一帧。
+// 提醒方式:专注走完时整屏按 400ms 明暗交替闪,同时大字亮出"专注结束"/"休息结束",
+// 8 秒后自动进下一段。闪屏用背光 PWM 做（bsp_display_backlight）,是全屏级的明暗变化,
+// 离得远也能看见,而且不额外画一帧。
 //
-// ponytail: 不出声。提醒只走画面,少一条 I2S 初始化路径、也就少一个开机失败面。
-// 要加"叮"一声时不必改本文件结构:bsp_audio_init() + rtttl_player_play() 是现成的
-// (见 rtttl_player.h),注意初始化要排在建画布【之后】(跑酷那边踩过这个坑)。
+// 提示音:专注结束放上行三音,休息结束放单声短音 —— 两种一听就能分辨,不用看屏幕;
+// 按键只给"状态真的变了"的那个键一声短咔（A 开始/暂停/继续、B 重置）。
+// 音频初始化必须排在建画布【之后】:它会吃掉几十 KB 内部 RAM,先建画布才拿得到
+// 连续的 150KB。板子上没贴功放时初始化照样成功,只是听不到声 —— 不算故障。
 #include "pocket_pomodoro_ui.h"
 
 #include <stdio.h>
@@ -27,6 +28,7 @@
 #include "chick_ui_draw.h"
 #include "pocket_pomodoro_model.h"
 
+#include "bsp_audio.h"
 #include "bsp_display.h"
 #include "bsp_pins.h"
 #include "esp_heap_caps.h"
@@ -38,6 +40,7 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "rtttl_player.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 
@@ -93,11 +96,17 @@ static const chick_font_t *const FONT_SMALL = &chick_font_14;  // 按键提示 /
 // 提醒闪屏的暗相位。不是 0:全黑会让"屏幕坏了"和"在报警"分不清。
 #define FLASH_BRIGHT 8
 
+// 提示音旋律。时长都不到 1 秒:提醒音刚够听清,按键音短到连按也不烦。
+static const char *const SFX_FOCUS_DONE = "focusdone:d=16,o=5,b=200:e,g,c6";
+static const char *const SFX_BREAK_DONE = "breakdone:d=32,o=5,b=260:c6";
+static const char *const SFX_CLICK      = "click:d=32,o=6,b=600:c6";
+
 static uint16_t *s_fb;              // SCREEN_W * SCREEN_H,内部 RAM
 static chick_canvas_t s_canvas;
 static uint16_t *s_stage;           // 推屏用的连续行缓冲(画布有行跨距)
 static SemaphoreHandle_t s_flush_done;
 static QueueHandle_t s_keys;
+static bool s_audio_ok;             // 音频不可用时只关提示音,不影响计时和画面
 static TaskHandle_t s_task;
 static volatile bool s_running;
 
@@ -347,11 +356,25 @@ static void set_backlight(uint8_t percent) {
     bsp_display_backlight(percent);
 }
 
+// 提示音统一从这里出。播放器自己在任务里合成并通过 I2S 推样本,这里不等它。
+static void play_sfx(const char *song) {
+    if (s_audio_ok) (void)rtttl_player_play(song);
+}
+
 static void handle_key(pomo_key_t key, uint32_t now) {
     s_last_input_ms = now;
     switch (key) {
-        case POMO_KEY_A: (void)pomo_toggle(&s_timer, now); break;
-        case POMO_KEY_B: (void)pomo_reset(&s_timer, now); break;
+        case POMO_KEY_A: {
+            const pomo_phase_t before = s_timer.phase;
+            if (pomo_toggle(&s_timer, now) && before != POMO_PHASE_DONE) {
+                // 通知窗口里按 A 只是跳过提醒,刚响过提示音,不要再盖一声按键音。
+                play_sfx(SFX_CLICK);
+            }
+            break;
+        }
+        case POMO_KEY_B:
+            if (pomo_reset(&s_timer, now)) play_sfx(SFX_CLICK);
+            break;
         case POMO_KEY_UP: (void)pomo_adjust(&s_timer, true); break;
         case POMO_KEY_DOWN: (void)pomo_adjust(&s_timer, false); break;
         case POMO_KEY_LEFT: (void)pomo_switch(&s_timer, false); break;
@@ -374,6 +397,10 @@ static void frame_task(void *arg) {
         }
         if (pomo_tick(&s_timer, now)) {
             s_hud_dirty = true;
+            if (s_timer.phase == POMO_PHASE_DONE) {
+                // next 是通知窗口结束后要走的阶段:next=BREAK 说明刚结束的是专注那段。
+                play_sfx(s_timer.next == POMO_PHASE_BREAK ? SFX_FOCUS_DONE : SFX_BREAK_DONE);
+            }
             // 阶段切换/完成数变了才写一次 NVS,不是每帧写。
             if (s_timer.focus_min != s_saved_focus || s_timer.break_min != s_saved_break) {
                 s_saved_focus = s_timer.focus_min;
@@ -450,15 +477,24 @@ esp_err_t pocket_pomodoro_ui_start(void) {
     store_load();
     s_last_input_ms = now_ms();
 
+    // 提示音初始化:必须排在画布/推屏缓冲都拿到【之后】—— 音频的 DMA 缓冲会占几十 KB
+    // 内部 RAM,先建画布才拿得到连续的 150KB(跑酷那边踩过这个坑)。
+    // 音频不可用(例如板上没贴功放)只关提示音,不影响计时和画面。
+    if (bsp_audio_init() == ESP_OK && rtttl_player_start() == ESP_OK) {
+        s_audio_ok = true;
+    } else {
+        ESP_LOGW(TAG, "音频不可用,本次运行无提示音");
+    }
+
     s_running = true;
     if (xTaskCreate(frame_task, "pomodoro_frame", 4096, NULL, 5, &s_task) != pdPASS) {
         s_running = false;
         ESP_LOGE(TAG, "渲染任务创建失败");
         return ESP_ERR_NO_MEM;
     }
-    ESP_LOGI(TAG, "就绪:番茄闹钟 %dx%d,专注 %u 分 / 休息 %u 分,已完成 %u 个",
+    ESP_LOGI(TAG, "就绪:番茄闹钟 %dx%d,专注 %u 分 / 休息 %u 分,已完成 %u 个,提示音 %s",
              SCREEN_W, SCREEN_H, (unsigned)s_timer.focus_min, (unsigned)s_timer.break_min,
-             (unsigned)s_timer.done_count);
+             (unsigned)s_timer.done_count, s_audio_ok ? "开" : "关");
     return ESP_OK;
 }
 

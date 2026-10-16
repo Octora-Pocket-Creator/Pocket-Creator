@@ -16,6 +16,8 @@ idf_component_register(
          "pocket_pomodoro_ui.c"
          "chick_ui_draw.c"
          "chick_run_glyphs.c"
+         "rtttl_player.c"
+         "rtttl_wave.c"
     INCLUDE_DIRS "."
     REQUIRES bsp esp_timer esp_hw_support nvs_flash
 )
