@@ -6,6 +6,7 @@
 //   chick_run_ui.c     —— 本文件实现:页面、绘制、按键语义、NVS 最高分。
 #pragma once
 
+#include "app_router.h"
 #include "bsp_button.h"
 #include "esp_err.h"
 
@@ -18,3 +19,7 @@ void chick_run_ui_stop(void);
 
 // 按键入口:运行在按键事件任务里,只做入队,不碰 LVGL。
 void chick_run_ui_key(bsp_btn_t btn, bsp_btn_ev_t ev);
+
+// 切换请求(见 app_router.h)。首页长按 B(三键板双击确定键)会登记
+// APP_REQUEST_MENU,由 main.c 负责停掉本应用并启动菜单。
+app_request_t chick_run_ui_request(void);

@@ -1,4 +1,4 @@
-// main/chick_run_glyphs.h —— 应用自己的字形表(生成物)。
+// main/chick_run_glyphs.h —— 应用自己的字形表(C3,生成物)。
 //
 // 零 LVGL:运行时不链接 LVGL,字形位图与度量都在这里。排版语义与 LVGL 完全一致
 // (公式见 main/chick_ui_draw.c),所以换引擎不会让画面变样。

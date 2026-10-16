@@ -9,7 +9,7 @@
 //
 // 按键提示按【本板按键能力】取词,不是按板名:
 //   * 六键板(上/下/左/右/A/B):提示写 A / B;
-//   * 没有 B 键的硬件(只有确认键):提示写 OK。
+//   * 三键板(上/下/确定):提示写 OK。
 // 两套文案里的字都在同一份字体清单内(ASCII 全量 + 下面这些汉字),不用重新生成字体。
 #pragma once
 
@@ -24,39 +24,20 @@
 #define CHICK_TEXT_PAUSE_HINT   "A 继续"
 #define CHICK_TEXT_BACK_HINT    "B 回首页"
 #define CHICK_TEXT_AGAIN_HINT   "A 再玩一次"
-#define CHICK_TEXT_SETTINGS_HINT "B 设置"
+#define CHICK_TEXT_SETTINGS_HINT "B 设置 长按回菜单"
 #define CHICK_TEXT_SETTINGS_HELP "上 下 切换\n左 右 调整 B 返回"
 #define CHICK_TEXT_LEVEL_NEXT_HINT "A 下一关"
 #else
-// 没有 B 键时:确认键(OK)兼任确认与暂停,长按返回。
+// 三键板:没有 B 键,确定键(OK)兼任确认与暂停,长按返回。
 #define CHICK_TEXT_START_HINT   "按 OK 开始"
 #define CHICK_TEXT_CONTROLS     "上 跳 躲开障碍\nOK 暂停 长按返回"
 #define CHICK_TEXT_PAUSE_HINT   "OK 继续"
 #define CHICK_TEXT_BACK_HINT    "长按 OK 回首页"
 #define CHICK_TEXT_AGAIN_HINT   "OK 再玩一次"
-#define CHICK_TEXT_SETTINGS_HINT "长按 OK 设置"
+#define CHICK_TEXT_SETTINGS_HINT "长按设置 双击回菜单"
 #define CHICK_TEXT_SETTINGS_HELP "上 下 调整\nOK 切换 长按返回"
 #define CHICK_TEXT_LEVEL_NEXT_HINT "OK 下一关"
 #endif
-
-// 《方向快手》(main/pocket_reflex_ui.c)的标题。上下左右四个字已经在小鸡快跑的
-// 文案里,字形清单不变 —— 复用同一份字体,不用重新生成字库。
-#define POCKET_TEXT_TITLE       "上下左右"
-
-// 《番茄闹钟》(main/pocket_pomodoro_ui.c)的全部文案。
-// 这一套引入了 12 个新汉字(番茄闹钟专 注休息 已完成个),所以【字体子集必须重跑】:
-//     python3 tools/generate-chick-run-font.py && python3 tools/generate-chick-run-glyphs.py
-// 只改文案也照样要重跑这两条,否则设备上会出现方框/空白(经典踩坑点)。
-// 时间数字不用字体:mm:ss 是自绘七段数码管(见 pocket_pomodoro_ui.c),零字库成本。
-#define POMODORO_TEXT_TITLE        "番茄闹钟"
-#define POMODORO_TEXT_FOCUS        "专注"
-#define POMODORO_TEXT_BREAK        "休息"
-#define POMODORO_TEXT_DONE_FMT     "已完成 %u 个"
-#define POMODORO_TEXT_FOCUS_END    "专注结束"
-#define POMODORO_TEXT_BREAK_END    "休息结束"
-#define POMODORO_TEXT_HINT_START   "A 开始  B 重置"
-#define POMODORO_TEXT_HINT_PAUSE   "A 暂停  B 重置"
-#define POMODORO_TEXT_HINT_ADJUST  "上 下 调整 左 右 切换"
 
 // 跑动过程中 HUD 只显示距离(米):得分是"距离 + 道具加分"的综合分,
 // 只在结算页给一次(见 CHICK_TEXT_THIS_RUN_FMT / CHICK_TEXT_LEVEL_RESULT_FMT),
@@ -107,9 +88,4 @@
     CHICK_TEXT_SETTINGS_VOLUME, CHICK_TEXT_SETTINGS_WARM, CHICK_TEXT_SETTINGS_HELP, \
     CHICK_TEXT_MODE_FREE, CHICK_TEXT_MODE_LEVEL, CHICK_TEXT_MODE_FMT, \
     CHICK_TEXT_LEVEL_BEST_FMT, CHICK_TEXT_LEVEL_FMT, CHICK_TEXT_LEVEL_CLEAR, \
-    CHICK_TEXT_LEVEL_RESULT_FMT, CHICK_TEXT_LEVEL_NEXT_HINT, \
-    POCKET_TEXT_TITLE, \
-    POMODORO_TEXT_TITLE, POMODORO_TEXT_FOCUS, POMODORO_TEXT_BREAK, \
-    POMODORO_TEXT_DONE_FMT, POMODORO_TEXT_FOCUS_END, POMODORO_TEXT_BREAK_END, \
-    POMODORO_TEXT_HINT_START, POMODORO_TEXT_HINT_PAUSE, \
-    POMODORO_TEXT_HINT_ADJUST
+    CHICK_TEXT_LEVEL_RESULT_FMT, CHICK_TEXT_LEVEL_NEXT_HINT

@@ -1,18 +1,19 @@
 // main/chick_run_ui.c —— 小鸡快跑的界面与交互(零 LVGL 自绘,240x320 ST7789 SPI 屏)。
 //
-// 同一份代码只面向一块板:差异全部由 BSP 吸收(见 bsp_pins.h)——
-//   * ESP32-S3R8 板:六键 GPIO 直连(UP/DOWN/A/B/LEFT/RIGHT)+ 8MB PSRAM。
-// 本文件里的输入处理按 BSP 给出的语义键(UP/DOWN/A/B/LEFT/RIGHT)工作,同时兼容
-// 只有三个按键能力时的降级路径(BSP_BTN_HAS_B)。
+// 同一份代码跑在两块板上,差异全部由 BSP 吸收(见 bsp_pins.h):
+//   * ESP32-C3 Passport:三键 ADC 分压(只有 UP/DOWN/OK);
+//   * ESP32-S3R8 通用板:六键 GPIO 直连(UP/DOWN/LEFT/RIGHT/OK/BACK) + PSRAM。
+// 因此本文件里的输入处理同时接受两套键:UP/DOWN/OK 是与以前一致的主链,
+// LEFT/RIGHT/BACK 只在六键板上出现(三键板上永远不会触发)。
 //
-// 这套渲染方案针对下面三点做了适配:
+// 这套渲染方案和 S31 版本同源,针对下面三点做了适配:
 //   1. 竖屏 240x320、SPI 屏:没有成对的"帧缓冲+vsync",渲染进一块内部 RAM 画布,
 //      每帧只把【变化过的矩形】通过 SPI 推给面板(全屏推一次要 150KB,SPI 根本跑不动);
 //   2. 不依赖 PSRAM:不烘焙整屏背景,天空/草地用"按行算好的颜色表"现场填,远山按精灵贴
-//      (本板有 8MB PSRAM,但画布与常驻精灵预算都按内部 RAM 算,换板不用重写渲染);
-//   3. 渲染任务不绑核:绑核在单核芯片上会直接创建失败。
+//      (S3R8 板有 8MB PSRAM,但 C3 版本没有,这条规矩让两边共用同一份渲染代码);
+//   3. 单核也不绑核:渲染任务不绑核(绑核在单核芯片上会直接创建失败)。
 //
-// 渲染分工:
+// 渲染分工(与 S31 版一致,便于两边同时维护):
 //   * 世界:chick_scene 的脏矩形计划(纯逻辑,有主机测试)+ 精灵游程 memcpy;
 //   * HUD/首页/设置页/弹层:chick_ui_draw 的矩形/文字/精灵原语;
 //   * 字形:chick_run_glyphs.c(生成物,来自 assets/fonts 的 20/28px 子集)。
@@ -59,7 +60,7 @@ static const char *TAG = "chick_run_ui";
 #define FONT_TINY (&chick_font_20)   // HUD 小字(分数/关卡/米数)
 #define FONT_TINYER (&chick_font_14) // 最小号(FPS)
 
-// --- 音效(RTTTL 由 rtttl_player 自己的任务合成)--------------
+// --- 音效(与 S31 版相同,RTTTL 由 rtttl_player 自己的任务合成)--------------
 static const char *const SFX_START  = "start:d=16,o=5,b=200:c,e,g,c6";
 static const char *const SFX_JUMP   = "jump:d=16,o=6,b=400:e,g";
 static const char *const SFX_SLIDE  = "slide:d=32,o=4,b=500:c";
@@ -128,7 +129,7 @@ static const char *const BGM_MAIN =
 #define LAYOUT_H         CHICK_RUN_SCREEN_H          // 320
 #define GROUND_Y         CHICK_RUN_GROUND_Y          // 248
 
-// 圆角屏(BSP_LCD_CORNER_RADIUS > 0)时圆角会切掉四角:HUD 一律内缩,否则文字/控件会被圆角切掉。
+// 子板是圆角屏(半径 30):HUD 一律内缩,否则文字/控件会被圆角切掉。
 // 关卡模式把"第 X 关 + 进度条 + 命数爱心"排在同一行、放在地面线下面的草地上
 // (用户要求)。于是两种模式的顶部完全一致:只有距离(米)+ 道具徽章 + FPS/电量。
 #define LEVEL_LABEL_X    14
@@ -305,6 +306,8 @@ _Static_assert(SCENE_ITEM_MAX <= CHICK_SCENE_SLOTS, "scene slots < item count");
 
 typedef chick_rect_t rect_t;
 
+// 切换请求:界面只写这个变量,由 main.c 轮询后执行 stop/start(见 app_router.h)。
+static volatile app_request_t s_request;
 static scene_item_t s_cur[SCENE_ITEM_MAX];
 static chick_scene_fb_t s_scene;          // 单画布:只需一份记账
 static rect_t s_overlay_rect;
@@ -447,7 +450,7 @@ static void asset_build(sprite_asset_t *a, chick_sprite_id_t id, int num, int de
             }
         }
     }
-    // 预计算不透明游程:blit 变成按段 memcpy(逐像素判掩码在 240x320 的帧率下太慢)。
+    // 预计算不透明游程:blit 变成按段 memcpy(逐像素判掩码在 C3 上太慢)。
     a->row_off = heap_caps_malloc(sizeof(uint32_t) * ((size_t)h + 1), MALLOC_CAP_INTERNAL);
     if (a->row_off == NULL) return;
     uint32_t total = 0;
@@ -494,14 +497,31 @@ static bool assets_init(void) {
     return true;
 }
 
+// 释放全部精灵资产。切换应用(main.c 的 app_switch)会 stop 再 start,
+// 而 assets_init() 是无条件重建的 —— 不在这里释放,每切一次就漏掉约 75KB
+// 内部 RAM(第二次分配还会因为内部 RAM 碎片化更容易失败)。
+static void assets_free(void) {
+    for (int id = 0; id < CHICK_SPRITE_COUNT; id++) {
+        sprite_asset_t *a = &s_assets[id];
+        if (a->spans != NULL) { heap_caps_free(a->spans); a->spans = NULL; }
+        if (a->row_off != NULL) { heap_caps_free(a->row_off); a->row_off = NULL; }
+        if (a->mask != NULL) { heap_caps_free(a->mask); a->mask = NULL; }
+        if (a->rgb != NULL) { heap_caps_free(a->rgb); a->rgb = NULL; }
+        a->w = 0;
+        a->h = 0;
+        s_asset_w[id] = 0;
+        s_asset_h[id] = 0;
+    }
+}
+
 // --- 背景(无 PSRAM:不烘焙整屏,按行算颜色表 + 远山精灵)------------------
 // RGB565 每通道只有 5/6 位,长渐变必须抖动才能不出硬边。每行预先量化成
 // "基准档位 + 抖动阈值"(见 main/chick_gradient.c),填充时与 32x32 蓝噪声掩码比较:
 // 行平均严格执行理想渐变(所以没有"大条分层"),进位位置无规则(所以没有网格颗粒)。
 static chick_gradient_row_t s_sky_row[GROUND_Y];
 static chick_gradient_row_t s_grass_row[LAYOUT_H - GROUND_Y];
-// 远山基线下压 10 像素后由地面盖住:本板是 1:1,直接用 10;
-// 按 2 倍缩放实现时要写 +20 屏幕像素才是同一个位置,写成 20 会把山压掉一大半。
+// 远山基线下压 10 像素后由地面盖住:与 S31 版(2 倍缩放时写的是 +20 屏幕像素
+// = 10 逻辑像素)视觉一致。C3 是 1:1,直接用 10;写成 20 会把山压掉一大半。
 #define MOUNTAIN_Y (GROUND_Y - MOUNTAIN_CANVAS_H + 10)
 
 static void bg_prepare(void) {
@@ -604,7 +624,7 @@ static void canvas_blit_asset(const chick_canvas_t *c, const sprite_asset_t *a, 
     chick_blit_sprite(c, x, y, a->rgb, a->mask, a->w, a->h);
 }
 
-// 常驻 RAM 有限:把每个精灵都预展开成 RGB565+掩码要 ~100KB,加上画布就放不下了。
+// C3 没有 PSRAM:把每个精灵都预展开成 RGB565+掩码要 ~100KB 常驻 RAM,画布都放不下了。
 // 所以“每帧只画一两次”的静态美术(远山、首页大鸡)直接从字符美术查表画 ——
 // 每像素多一次查表,但省掉全部常驻缓冲。热点精灵(小鸡/障碍/云/装饰)仍然预展开,
 // 因为它们每帧要贴很多次,逐像素查表会被 SP7589 级别的 SPI 帧率拖垮。
@@ -1393,7 +1413,7 @@ static void handle_key(const chick_key_t *key) {
             settings_close();          // A/B 都是返回(设置已经即时生效,不需要单独保存键)
         }
 #else
-        // 没有左右键时:BSP_BTN_HAS_B 为 0,上下调整数值,确定切换项目,长按确定返回。
+        // 三键板(上/下/确定)没有左右键:上下调整数值,确定切换项目,长按确定返回。
         if (key->btn == BSP_BTN_UP && key->ev == BSP_BTN_PRESS && !debounced) {
             s_settings_press_ms = now_ms();
             settings_adjust(+1);
@@ -1421,6 +1441,14 @@ static void handle_key(const chick_key_t *key) {
         else if (key->btn == BSP_BTN_A && key->ev == BSP_BTN_CLICK) start_run();
         else if (key->btn == BSP_BTN_A && key->ev == BSP_BTN_LONG) settings_open();
         else if (key->btn == BSP_BTN_B && key->ev == BSP_BTN_CLICK) settings_open();
+        // 回游戏选择菜单:六键板用首页长按 B(单击 B 是设置,不再冲突);
+        // 三键板没有 B,用双击确定键。菜单本身住在俄罗斯方块应用里。
+        else if (key->btn == BSP_BTN_B && key->ev == BSP_BTN_LONG) s_request = APP_REQUEST_MENU;
+#if !BSP_BTN_HAS_B
+        else if (key->btn == BSP_BTN_A && key->ev == BSP_BTN_DOUBLE) {
+            s_request = APP_REQUEST_MENU;
+        }
+#endif
         return;
     }
     switch (s_run.state) {
@@ -1444,7 +1472,7 @@ static void handle_key(const chick_key_t *key) {
                 if (chick_run_toggle_pause(&s_run)) overlay_show(OVERLAY_PAUSE, NULL);
 #else
             } else if (key->btn == BSP_BTN_A && key->ev == BSP_BTN_CLICK) {
-                // 没有 B 键时的降级:确定键兼任暂停。
+                // 三键板没有 B 键:确定键兼任暂停。
                 if (chick_run_toggle_pause(&s_run)) overlay_show(OVERLAY_PAUSE, NULL);
 #endif
             }
@@ -1458,7 +1486,7 @@ static void handle_key(const chick_key_t *key) {
             } else if (key->btn == BSP_BTN_B && key->ev == BSP_BTN_CLICK) {
                 back_to_title();           // 六键板:B 键直接从暂停回到首页
             } else if (key->btn == BSP_BTN_A && key->ev == BSP_BTN_LONG) {
-                back_to_title();           // 没有 B 键时只能长按确定回首页
+                back_to_title();           // 三键板只能长按确定回首页
             }
             break;
         case CHICK_STATE_GAME_OVER:
@@ -1624,8 +1652,8 @@ static void flush_rect(int x, int y, int w, int h) {
     s_flush_us_total += now_us() - t0;
 }
 
-// 屏幕四角遮罩:只有圆角屏(半径 ≥ 1)需要把圆角外涂黑。
-// 本板 BSP_LCD_CORNER_RADIUS = 0(直角屏),直接跳过 —— 用户要求"屏幕四周
+// 屏幕四角遮罩:只有圆角屏(子板,C3 Passport)需要把圆角外涂黑。
+// 直角屏(S3R8 开发板,BSP_LCD_CORNER_RADIUS = 0)直接跳过 —— 用户要求"屏幕四周
 // 不要黑色圆角",所以这里不做任何遮罩,四角就是应用自己画的画面。
 static void mask_corners(void) {
     const int radius = BSP_LVGL_SCREEN_RADIUS;
@@ -1872,7 +1900,7 @@ esp_err_t chick_run_ui_start(void) {
     s_keys = xQueueCreate(8, sizeof(chick_key_t));
     if (s_keys == NULL) return ESP_ERR_NO_MEM;
 
-    // ★ 画布必须在音频/I2S 初始化【之前】分配:音频初始化会吃掉几十 KB,
+    // ★ 画布必须在音频/codec 初始化【之前】分配:ES8311 + I2S 会吃掉几十 KB,
     //   晚分配时最大连续块只剩 136KB,150KB 的画布就分配不到了(真机踩过)。
     ESP_LOGI(TAG, "堆:最大块 default=%u internal=%u int8=%u dma=%u iram=%u 总空闲=%u",
              (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT),
@@ -1915,7 +1943,7 @@ esp_err_t chick_run_ui_start(void) {
     bsp_audio_set_volume(s_settings.volume);
     // 色温补偿要在首帧推屏前建好表,否则第一帧会是未补偿的颜色。
     tint_rebuild();
-    // 电池采样是可选能力:探测一次决定要不要画电量槽。
+    // 电量计是可选硬件:C3 Passport 有,S3R8 板没有。探测一次决定要不要画电量槽。
     s_battery_present = (bsp_battery_init() == ESP_OK);
     if (!s_battery_present) ESP_LOGI(TAG, "本板无电量计,电量槽不显示");
 
@@ -1996,6 +2024,18 @@ void chick_run_ui_stop(void) {
         vQueueDelete(s_keys);
         s_keys = NULL;
     }
+    // 画布/推送缓冲/信号量必须在这里还给系统:切到另一个游戏时对方要重新分配
+    // 同样大小的画布,不释放就必然分配失败(两个应用的画布都是 150KB)。
+    // 字形表与精灵资产是编译进来的常量,不需要释放。
+    assets_free();
+    if (s_stage != NULL) { heap_caps_free(s_stage); s_stage = NULL; }
+    if (s_fb != NULL) { heap_caps_free(s_fb); s_fb = NULL; }
+    if (s_flush_done != NULL) { vSemaphoreDelete(s_flush_done); s_flush_done = NULL; }
+    s_request = APP_REQUEST_NONE;
+}
+
+app_request_t chick_run_ui_request(void) {
+    return s_request;
 }
 
 void chick_run_ui_key(bsp_btn_t btn, bsp_btn_ev_t ev) {

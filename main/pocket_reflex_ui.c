@@ -24,6 +24,7 @@
 #include "chick_run_glyphs.h"
 #include "chick_run_sprites.h"
 #include "chick_run_text.h"
+#include "reference_app_text.h"
 #include "chick_ui_draw.h"
 #include "pocket_reflex_model.h"
 

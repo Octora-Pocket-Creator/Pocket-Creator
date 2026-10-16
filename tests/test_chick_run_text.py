@@ -17,7 +17,6 @@ ROOT = Path(__file__).resolve().parents[1]
 TEXT_HEADER = ROOT / "main" / "chick_run_text.h"
 UI_SOURCES = (
     ROOT / "main" / "chick_run_ui.c",
-    ROOT / "main" / "pocket_pomodoro_ui.c",
     ROOT / "main" / "main.c",
 )
 LOG_PREFIXES = ("ESP_LOG",)
@@ -50,9 +49,7 @@ def displayed_codepoints(path: Path) -> set[int]:
 
 def inventory_codepoints() -> set[int]:
     text = TEXT_HEADER.read_text(encoding="utf-8")
-    definitions = re.findall(
-        r'#define\s+(?:CHICK|POCKET|POMODORO)_TEXT_\w+\s+"((?:[^"\\]|\\.)*)"', text
-    )
+    definitions = re.findall(r'#define\s+CHICK_TEXT_\w+\s+"((?:[^"\\]|\\.)*)"', text)
     inventory: set[int] = set()
     for definition in definitions:
         inventory.update(ord(char) for char in definition if ord(char) > 0x7F)

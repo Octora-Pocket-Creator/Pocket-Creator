@@ -109,6 +109,12 @@ run_static_checks() {
         tests/test_bsp_battery_math.c components/bsp/src/bsp_battery_math.c \
         -o "${test_dir}/test_bsp_battery_math"
     "${test_dir}/test_bsp_battery_math"
+    # 俄罗斯方块:形状表/墙踢/重力曲线/锁定延迟/计分/7-bag/20 万步随机不变量(纯 C)。
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_tetris_model.c main/tetris_model.c \
+        -o "${test_dir}/test_tetris_model"
+    "${test_dir}/test_tetris_model"
+    PYTHONDONTWRITEBYTECODE=1 python3 tests/test_tetris_music.py
     PYTHONDONTWRITEBYTECODE=1 python3 tests/test_chick_run_text.py
     PYTHONDONTWRITEBYTECODE=1 python3 tests/test_chick_run_audio.py
 
