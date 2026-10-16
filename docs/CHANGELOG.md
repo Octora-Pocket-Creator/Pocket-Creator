@@ -12,6 +12,18 @@
 
 ## Unreleased
 
+## v1.0.1-pockigo-pomodoro - 2026-10-16
+
+- **README wordmark.** The PockiGo logo asset is cropped to the artwork itself:
+  the transparent padding (111 px top, 42 px bottom, 29 px left, 16 px right) is
+  gone, so the logo no longer renders with an empty band around it. The file is
+  now 2090 × 583.
+- **Repository checks pass on Linux/GCC.** `tests/test_bsp_battery_math.c` and
+  `main/demo_ble.c` now include `<stdint.h>` explicitly. GCC with glibc does not
+  provide `int64_t`/`uint8_t` transitively the way the macOS SDK does, so the
+  static gate (`./tools/validate.sh --static`) failed on Ubuntu while passing on
+  macOS; both toolchains pass now.
+
 ## v1.0.0-pockigo-pomodoro - 2026-10-16
 
 First release of the PockiGo baseline, built for the ESP32-S3R8 handheld.

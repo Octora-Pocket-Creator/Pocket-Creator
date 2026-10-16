@@ -10,6 +10,15 @@
 
 ## Unreleased
 
+## v1.0.1-pockigo-pomodoro - 2026-10-16
+
+- **README 字标。** PockiGo 品牌图已按图形本身裁切：去掉透明留白（上 111 px、下 42 px、
+  左 29 px、右 16 px），不再出现字标周围的空白框；文件尺寸为 2090 × 583。
+- **仓库检查在 Linux/GCC 下通过。** `tests/test_bsp_battery_math.c` 与 `main/demo_ble.c`
+  现在显式包含 `<stdint.h>`。glibc 版 GCC 不像 macOS SDK 那样间接提供
+  `int64_t`/`uint8_t`，因此静态门禁（`./tools/validate.sh --static`）在 Ubuntu 上失败、
+  在 macOS 上通过；现在两套工具链都通过。
+
 ## v1.0.0-pockigo-pomodoro - 2026-10-16
 
 PockiGo 基线的首个发布，面向 ESP32-S3R8 掌机。
