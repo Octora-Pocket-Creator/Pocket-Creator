@@ -1,0 +1,18 @@
+build/
+sdkconfig
+sdkconfig.old
+managed_components/
+.vscode/
+.idea/
+
+# Generated repository-local links; canonical skill sources live in skills/.
+/.agents/skills/pocketport-develop
+/.agents/skills/pocketport-setup
+/.agents/skills/pocketport-build
+/.agents/skills/pocketport-device-test
+/.agents/skills/pocketport-debug
+
+# 本地开发构建目录 / macOS 与 Python 垃圾文件
+build-dev/
+.DS_Store
+__pycache__/

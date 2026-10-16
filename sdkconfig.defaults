@@ -1,0 +1,47 @@
+# ESP32-S3R8 掌机(16MB Flash + 8MB Octal PSRAM)—— 本分支的默认产品配置。
+#
+# 换板时先改 components/bsp/include/bsp_pins.h,再改这里的 Flash/PSRAM。
+
+# --- 目标芯片 ---
+CONFIG_IDF_TARGET="esp32s3"
+
+# --- Flash:16MB ---
+# ESP32-S3R8 模组 = 16MB Flash + 8MB Octal PSRAM。
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+# 固定 16MB 镜像头，关闭 detect，便于 idf.py merge-bin。
+CONFIG_ESPTOOLPY_HEADER_FLASHSIZE_UPDATE=n
+# 默认模板只保留 NVS、PHY data 和占用剩余空间的 factory app；用户可按需修改。
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
+
+# --- PSRAM:8MB Octal ---
+# S3R8 是 Octal PSRAM(OCT 模式),不是 Quad;设错会直接启动失败。
+# 这里故意【不设】CONFIG_SPIRAM_IGNORE_NOTFOUND:板子与配置不匹配时要当场报错,
+# 而不是悄悄降级到内部 RAM 之后再出现莫名其妙的分配失败。
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+
+# --- 控制台:USB Serial/JTAG(S3 原生 USB,GPIO19/20)---
+# 不用 UART0:本板 UART0 默认是 GPIO43/44,而 USB 口是最稳的刷机/日志通道。
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+
+# --- LVGL ---
+# 当前应用(小鸡快跑)是零 LVGL 自绘,不链接 LVGL;这些键保留是为了让基线 demo
+# 仍然可编、可对照。它们不参与本应用的链接。
+CONFIG_LV_COLOR_DEPTH_16=y
+CONFIG_LV_DEF_REFR_PERIOD=20
+CONFIG_LV_FONT_MONTSERRAT_14=y
+CONFIG_LV_FONT_MONTSERRAT_20=y
+CONFIG_LV_FONT_MONTSERRAT_28=y
+CONFIG_LV_MEM_SIZE=65536
+
+# --- 系统 ---
+CONFIG_FREERTOS_HZ=1000
+
+# --- Bluetooth ---
+# 本产品(离线跑酷游戏)不用蓝牙。S3 上显式关闭,省掉 NimBLE 的编译时间与 Flash 占用;
+# 需要 BLE 的产品请在派生工程里打开。
+CONFIG_BT_ENABLED=n
