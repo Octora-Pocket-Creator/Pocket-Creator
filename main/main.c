@@ -1,9 +1,9 @@
-// main/main.c —— 《番茄闹钟》(Pocket Pomodoro)应用入口。
+// main/main.c —— 《小鸡快跑》(Chick Run)应用入口。
 //
-// 分层与跑酷/方向快手一致,内容换成了离线计时工具:
-//   pocket_pomodoro_model.c  25/5 循环、暂停/重置、调时长(纯 C,主机可测)
-//   pocket_pomodoro_ui.c     画面、按键队列、推屏
-//   本文件                   只做板级初始化与按键事件入队
+// 三层分得很清:
+//   chick_run_model.c   物理/生成/碰撞/计分(纯 C,主机可测)
+//   chick_run_ui.c      画面、按键语义、推屏(零 LVGL 自绘)
+//   本文件              只做板级初始化与按键事件入队
 //
 // 板级差异全部在 BSP 里(S3R8 六键 GPIO 已被 BSP 归一成
 // UP/DOWN/A/B/LEFT/RIGHT 六个语义键),这里不做任何目标相关的分支。
@@ -15,7 +15,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
-#include "pocket_pomodoro_ui.h"
+#include "chick_run_ui.h"
 
 static const char *TAG = "main";
 
@@ -43,7 +43,7 @@ static void input_task(void *arg) {
     input_event_t event;
     for (;;) {
         if (xQueueReceive(s_input_queue, &event, portMAX_DELAY) == pdTRUE) {
-            pocket_pomodoro_ui_key(event.btn, event.event);
+            chick_run_ui_key(event.btn, event.event);
         }
     }
 }
@@ -51,7 +51,7 @@ static void input_task(void *arg) {
 static esp_err_t input_dispatch_init(void) {
     s_input_queue = xQueueCreate(INPUT_QUEUE_DEPTH, sizeof(input_event_t));
     if (s_input_queue == NULL) return ESP_ERR_NO_MEM;
-    if (xTaskCreate(input_task, "pomodoro_input", INPUT_TASK_STACK, NULL, 5, NULL) != pdPASS) {
+    if (xTaskCreate(input_task, "chick_input", INPUT_TASK_STACK, NULL, 5, NULL) != pdPASS) {
         vQueueDelete(s_input_queue);
         s_input_queue = NULL;
         return ESP_ERR_NO_MEM;
@@ -60,7 +60,7 @@ static esp_err_t input_dispatch_init(void) {
 }
 
 void app_main(void) {
-    ESP_LOGI(TAG, "PockiGo —— 番茄闹钟 build=%s", POCKET_POMODORO_BUILD_TAG);
+    ESP_LOGI(TAG, "PockiGo —— 小鸡快跑 build=%s", CHICK_RUN_BUILD_TAG);
 
     // I2C 是可选能力:S3R8 板没有 I2C 从设备,bsp_i2c_init() 返回"不支持"。
     // 只记不报错 —— 没有 I2C 不是故障。
@@ -87,9 +87,9 @@ void app_main(void) {
     }
     s_input_ready = true;
 
-    if (pocket_pomodoro_ui_start() != ESP_OK) {
+    if (chick_run_ui_start() != ESP_OK) {
         ESP_LOGE(TAG, "界面启动失败");
         return;
     }
-    ESP_LOGI(TAG, "就绪:A 开始/暂停 B 重置;上 下 调时长 左 右 切阶段");
+    ESP_LOGI(TAG, "就绪:上/下/左/右 切玩法 A 开始 B 设置;跑动中 上/A 跳 下 滑 B 暂停");
 }
