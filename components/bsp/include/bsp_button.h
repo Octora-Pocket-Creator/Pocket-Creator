@@ -34,6 +34,10 @@ typedef enum {
     BSP_BTN_CLICK,       // 单击(按下并抬起)
     BSP_BTN_DOUBLE,      // 双击
     BSP_BTN_LONG,        // 长按
+    // 松手瞬间:长按之后松手也会发这个事件(CLICK 不会),所以"按住持续生效"的
+    // 交互(俄罗斯方块的左右自动重复、下键加速下落)必须用它来收尾 ——
+    // 只靠 CLICK 收尾的话,按住超过长按阈值后那些持续状态就再也停不下来。
+    BSP_BTN_RELEASE,
 } bsp_btn_ev_t;
 
 // 按键事件回调。运行于 button 组件使用的共享 esp_timer 任务,只能入队或执行同等级
